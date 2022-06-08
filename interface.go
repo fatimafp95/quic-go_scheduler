@@ -59,15 +59,15 @@ type TokenStore interface {
 // when the server rejects a 0-RTT connection attempt.
 var Err0RTTRejected = errors.New("0-RTT rejected")
 
-// ConnectionTracingKey can be used to associate a ConnectionTracer with a Connection.
-// It is set on the Connection.Context() context,
+// SessionTracingKey can be used to associate a ConnectionTracer with a Session.
+// It is set on the Session.Context() context,
 // as well as on the context passed to logging.Tracer.NewConnectionTracer.
-var ConnectionTracingKey = connTracingCtxKey{}
+var SessionTracingKey = sessionTracingCtxKey{}
 
-type connTracingCtxKey struct{}
+type sessionTracingCtxKey struct{}
 
 // Stream is the interface implemented by QUIC streams
-// In addition to the errors listed on the Connection,
+// In addition to the errors listed on the Session,
 // calls to stream functions can return a StreamError if the stream is canceled.
 type Stream interface {
 	ReceiveStream
@@ -87,7 +87,7 @@ type ReceiveStream interface {
 	// after a fixed time limit; see SetDeadline and SetReadDeadline.
 	// If the stream was canceled by the peer, the error implements the StreamError
 	// interface, and Canceled() == true.
-	// If the connection was closed due to a timeout, the error satisfies
+	// If the session was closed due to a timeout, the error satisfies
 	// the net.Error interface, and Timeout() will be true.
 	io.Reader
 	// CancelRead aborts receiving on this stream.
@@ -111,7 +111,7 @@ type SendStream interface {
 	// after a fixed time limit; see SetDeadline and SetWriteDeadline.
 	// If the stream was canceled by the peer, the error implements the StreamError
 	// interface, and Canceled() == true.
-	// If the connection was closed due to a timeout, the error satisfies
+	// If the session was closed due to a timeout, the error satisfies
 	// the net.Error interface, and Timeout() will be true.
 	io.Writer
 	// Close closes the write-direction of the stream.
@@ -124,33 +124,37 @@ type SendStream interface {
 	// Write will unblock immediately, and future calls to Write will fail.
 	// When called multiple times or after closing the stream it is a no-op.
 	CancelWrite(StreamErrorCode)
-	// The Context is canceled as soon as the write-side of the stream is closed.
+	// The context is canceled as soon as the write-side of the stream is closed.
 	// This happens when Close() or CancelWrite() is called, or when the peer
 	// cancels the read-side of their stream.
+	// Warning: This API should not be considered stable and might change soon.
 	Context() context.Context
 	// SetWriteDeadline sets the deadline for future Write calls
 	// and any currently-blocked Write call.
 	// Even if write times out, it may return n > 0, indicating that
-	// some data was successfully written.
+	// some of the data was successfully written.
 	// A zero value for t means Write will not time out.
 	SetWriteDeadline(t time.Time) error
+	// HasingRetransmission checks if retransmission queue is empty
+	// this check is necessary for Delivery Rate Estimation
+	HasRetransmission() bool
 }
 
-// A Connection is a QUIC connection between two peers.
-// Calls to the connection (and to streams) can return the following types of errors:
+// A Session is a QUIC connection between two peers.
+// Calls to the session (and to streams) can return the following types of errors:
 // * ApplicationError: for errors triggered by the application running on top of QUIC
 // * TransportError: for errors triggered by the QUIC transport (in many cases a misbehaving peer)
 // * IdleTimeoutError: when the peer goes away unexpectedly (this is a net.Error timeout error)
 // * HandshakeTimeoutError: when the cryptographic handshake takes too long (this is a net.Error timeout error)
 // * StatelessResetError: when we receive a stateless reset (this is a net.Error temporary error)
 // * VersionNegotiationError: returned by the client, when there's no version overlap between the peers
-type Connection interface {
+type Session interface {
 	// AcceptStream returns the next stream opened by the peer, blocking until one is available.
-	// If the connection was closed due to a timeout, the error satisfies
+	// If the session was closed due to a timeout, the error satisfies
 	// the net.Error interface, and Timeout() will be true.
 	AcceptStream(context.Context) (Stream, error)
 	// AcceptUniStream returns the next unidirectional stream opened by the peer, blocking until one is available.
-	// If the connection was closed due to a timeout, the error satisfies
+	// If the session was closed due to a timeout, the error satisfies
 	// the net.Error interface, and Timeout() will be true.
 	AcceptUniStream(context.Context) (ReceiveStream, error)
 	// OpenStream opens a new bidirectional QUIC stream.
@@ -158,22 +162,22 @@ type Connection interface {
 	// The peer can only accept the stream after data has been sent on the stream.
 	// If the error is non-nil, it satisfies the net.Error interface.
 	// When reaching the peer's stream limit, err.Temporary() will be true.
-	// If the connection was closed due to a timeout, Timeout() will be true.
+	// If the session was closed due to a timeout, Timeout() will be true.
 	OpenStream() (Stream, error)
 	// OpenStreamSync opens a new bidirectional QUIC stream.
 	// It blocks until a new stream can be opened.
 	// If the error is non-nil, it satisfies the net.Error interface.
-	// If the connection was closed due to a timeout, Timeout() will be true.
+	// If the session was closed due to a timeout, Timeout() will be true.
 	OpenStreamSync(context.Context) (Stream, error)
 	// OpenUniStream opens a new outgoing unidirectional QUIC stream.
 	// If the error is non-nil, it satisfies the net.Error interface.
 	// When reaching the peer's stream limit, Temporary() will be true.
-	// If the connection was closed due to a timeout, Timeout() will be true.
+	// If the session was closed due to a timeout, Timeout() will be true.
 	OpenUniStream() (SendStream, error)
 	// OpenUniStreamSync opens a new outgoing unidirectional QUIC stream.
 	// It blocks until a new stream can be opened.
 	// If the error is non-nil, it satisfies the net.Error interface.
-	// If the connection was closed due to a timeout, Timeout() will be true.
+	// If the session was closed due to a timeout, Timeout() will be true.
 	OpenUniStreamSync(context.Context) (SendStream, error)
 	// LocalAddr returns the local address.
 	LocalAddr() net.Addr
@@ -182,38 +186,42 @@ type Connection interface {
 	// CloseWithError closes the connection with an error.
 	// The error string will be sent to the peer.
 	CloseWithError(ApplicationErrorCode, string) error
-	// The context is cancelled when the connection is closed.
+	// The context is cancelled when the session is closed.
+	// Warning: This API should not be considered stable and might change soon.
 	Context() context.Context
 	// ConnectionState returns basic details about the QUIC connection.
 	// It blocks until the handshake completes.
 	// Warning: This API should not be considered stable and might change soon.
 	ConnectionState() ConnectionState
 
-	// SendMessage sends a message as a datagram, as specified in RFC 9221.
+	// SendMessage sends a message as a datagram.
+	// See https://datatracker.ietf.org/doc/draft-pauly-quic-datagram/.
 	SendMessage([]byte) error
-	// ReceiveMessage gets a message received in a datagram, as specified in RFC 9221.
+	// ReceiveMessage gets a message received in a datagram.
+	// See https://datatracker.ietf.org/doc/draft-pauly-quic-datagram/.
 	ReceiveMessage() ([]byte, error)
 }
 
-// An EarlyConnection is a connection that is handshaking.
+// An EarlySession is a session that is handshaking.
 // Data sent during the handshake is encrypted using the forward secure keys.
 // When using client certificates, the client's identity is only verified
 // after completion of the handshake.
-type EarlyConnection interface {
-	Connection
+type EarlySession interface {
+	Session
 
-	// HandshakeComplete blocks until the handshake completes (or fails).
+	// Blocks until the handshake completes (or fails).
 	// Data sent before completion of the handshake is encrypted with 1-RTT keys.
 	// Note that the client's identity hasn't been verified yet.
 	HandshakeComplete() context.Context
 
-	NextConnection() Connection
+	NextSession() Session
 }
 
 // Config contains all configuration data needed for a QUIC server or client.
 type Config struct {
 	// The QUIC versions that can be negotiated.
 	// If not set, it uses all versions available.
+	// Warning: This API should not be considered stable and will change soon.
 	Versions []VersionNumber
 	// The length of the connection ID in bytes.
 	// It can be 0, or any value between 4 and 18.
@@ -261,13 +269,6 @@ type Config struct {
 	// MaxConnectionReceiveWindow is the connection-level flow control window for receiving data.
 	// If this value is zero, it will default to 15 MB.
 	MaxConnectionReceiveWindow uint64
-	// AllowConnectionWindowIncrease is called every time the connection flow controller attempts
-	// to increase the connection flow control window.
-	// If set, the caller can prevent an increase of the window. Typically, it would do so to
-	// limit the memory usage.
-	// To avoid deadlocks, it is not valid to call other functions on the connection or on streams
-	// in this callback.
-	AllowConnectionWindowIncrease func(sess Connection, delta uint64) bool
 	// MaxIncomingStreams is the maximum number of concurrent bidirectional streams that a peer is allowed to open.
 	// Values above 2^60 are invalid.
 	// If not set, it will default to 100.
@@ -285,7 +286,7 @@ type Config struct {
 	KeepAlive bool
 	// DisablePathMTUDiscovery disables Path MTU Discovery (RFC 8899).
 	// Packets will then be at most 1252 (IPv4) / 1232 (IPv6) bytes in size.
-	// Note that if Path MTU discovery is causing issues on your system, please open a new issue
+	// Note that Path MTU discovery is always disabled on Windows, see https://github.com/lucas-clemente/quic-go/issues/3273.
 	DisablePathMTUDiscovery bool
 	// DisableVersionNegotiationPackets disables the sending of Version Negotiation packets.
 	// This can be useful if version information is exchanged out-of-band.
@@ -295,6 +296,11 @@ type Config struct {
 	// Datagrams will only be available when both peers enable datagram support.
 	EnableDatagrams bool
 	Tracer          logging.Tracer
+
+	//SCHEDULER: StreamPrior defines the weight given to each stream.
+	StreamPrior []int
+	//SCHEDULER: TypePrior defines the type of the priority scheduler--> abs: absolute priorities, wfq: weighted priorities, rr: round robin
+	TypePrior string
 }
 
 // ConnectionState records basic details about a QUIC connection
@@ -305,21 +311,21 @@ type ConnectionState struct {
 
 // A Listener for incoming QUIC connections
 type Listener interface {
-	// Close the server. All active connections will be closed.
+	// Close the server. All active sessions will be closed.
 	Close() error
 	// Addr returns the local network addr that the server is listening on.
 	Addr() net.Addr
-	// Accept returns new connections. It should be called in a loop.
-	Accept(context.Context) (Connection, error)
+	// Accept returns new sessions. It should be called in a loop.
+	Accept(context.Context) (Session, error)
 }
 
 // An EarlyListener listens for incoming QUIC connections,
 // and returns them before the handshake completes.
 type EarlyListener interface {
-	// Close the server. All active connections will be closed.
+	// Close the server. All active sessions will be closed.
 	Close() error
 	// Addr returns the local network addr that the server is listening on.
 	Addr() net.Addr
-	// Accept returns new early connections. It should be called in a loop.
-	Accept(context.Context) (EarlyConnection, error)
+	// Accept returns new early sessions. It should be called in a loop.
+	Accept(context.Context) (EarlySession, error)
 }
