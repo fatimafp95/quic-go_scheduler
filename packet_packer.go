@@ -28,6 +28,8 @@ type packer interface {
 
 	HandleTransportParameters(*wire.TransportParameters)
 	SetToken([]byte)
+
+	HasRetransmission() bool
 }
 
 type sealer interface {
@@ -141,6 +143,9 @@ type frameSource interface {
 	HasData() bool
 	AppendStreamFrames([]ackhandler.Frame, protocol.ByteCount) ([]ackhandler.Frame, protocol.ByteCount)
 	AppendControlFrames([]ackhandler.Frame, protocol.ByteCount) ([]ackhandler.Frame, protocol.ByteCount)
+	// HasRetransmission checks if retransmission queue is empty
+	// this check is necessary for Delivery Rate Estimation
+	HasRetransmission() bool
 }
 
 type ackFrameSource interface {
@@ -891,4 +896,8 @@ func (p *packetPacker) HandleTransportParameters(params *wire.TransportParameter
 	if params.MaxUDPPayloadSize != 0 {
 		p.maxPacketSize = utils.MinByteCount(p.maxPacketSize, params.MaxUDPPayloadSize)
 	}
+}
+
+func (p *packetPacker) HasRetransmission() bool {
+	return p.retransmissionQueue.HasAppData() || p.framer.HasRetransmission()
 }

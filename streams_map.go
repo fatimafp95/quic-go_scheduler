@@ -315,3 +315,20 @@ func (m *streamsMap) UseResetMaps() {
 	m.reset = false
 	m.mutex.Unlock()
 }
+
+// HasRetransmission checks if retransmission queue is empty
+// this check is necessary for Delivery Rate Estimation
+func (m *streamsMap) HasRetransmission() bool {
+	for _, str := range m.outgoingBidiStreams.streams {
+		str.StreamID()
+		if str.HasRetransmission() {
+			return true
+		}
+	}
+	for _, str := range m.outgoingUniStreams.streams {
+		if str.HasRetransmission() {
+			return true
+		}
+	}
+	return false
+}

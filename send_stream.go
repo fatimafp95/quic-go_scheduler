@@ -494,3 +494,9 @@ func (s *sendStream) signalWrite() {
 	default:
 	}
 }
+
+// HasRetransmission checks if retransmission queue is empty
+// this check is necessary for Delivery Rate Estimation
+func (s *sendStream) HasRetransmission() bool {
+	return len(s.retransmissionQueue) > 0
+}

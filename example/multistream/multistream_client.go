@@ -15,10 +15,10 @@ func main() {
 	ip := flag.String("ip", "localhost:4242", "IP:Port Address")
 	//verbose := flag.Bool("v", false, "verbose (QUIC detailed logs)")
 	//priorities := flag.String("prior","1 1 1","Stream priorities")
-	scheduler := flag.String("scheduler","","Scheduler type-> abs: absolute priorities, rr: roundrobin, wfq:weighted fair queue")
+	scheduler := flag.String("scheduler","wfq","Scheduler type-> abs: absolute priorities, rr: roundrobin, wfq:weighted fair queue")
 	flag.Parse()
 
-	prior := []int{5, 7, 1}
+	prior := []int64{5, 7, 1}
 
 	config := &quic.Config{
 		StreamPrior:					prior,
@@ -38,11 +38,13 @@ func main() {
 	}
 
 	tlsConf := &tls.Config{
-		InsecureSkipVerify: false,
+		InsecureSkipVerify: true,
 		KeyLogWriter:       keyLog,
+		NextProtos:   []string{"quic-echo-example"},
 	}
 
-	session, err := quic.DialAddr(*ip, tlsConf, config)
+	//session, err := quic.DialAddr(*ip, tlsConf, config)
+	session, err := quic.DialAddr(*ip,tlsConf, config)
 	if err != nil {
 		panic(err)
 	}
@@ -62,5 +64,5 @@ func main() {
 		print("Error")
 		return
 	}
-	print("Mensaje stream1: %s", msg1,"\nMensaje stream2: %s", msg2, "\nMensaje stream3: %s", msg3)
+	print("\nMensaje stream1: %s", msg1,"\nMensaje stream2: %s", msg2, "\nMensaje stream3: %s", msg3)
 }

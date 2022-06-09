@@ -31,6 +31,10 @@ type unpacker interface {
 type streamGetter interface {
 	GetOrOpenReceiveStream(protocol.StreamID) (receiveStreamI, error)
 	GetOrOpenSendStream(protocol.StreamID) (sendStreamI, error)
+
+	// HasRetransmission checks if retransmission queue is empty
+	// this check is necessary for Delivery Rate Estimation
+	HasRetransmission() bool
 }
 
 type streamManager interface {
@@ -48,6 +52,9 @@ type streamManager interface {
 	CloseWithError(error)
 	ResetFor0RTT()
 	UseResetMaps()
+	// HasRetransmission checks if retransmission queue is empty
+	// this check is necessary for Delivery Rate Estimation
+	HasRetransmission() bool
 }
 
 type cryptoStreamHandler interface {

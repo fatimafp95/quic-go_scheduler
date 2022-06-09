@@ -109,6 +109,7 @@ func populateConfig(config *Config) *Config {
 		TokenStore:                       config.TokenStore,
 		InitialStreamReceiveWindow:       initialStreamReceiveWindow,
 		MaxStreamReceiveWindow:           maxStreamReceiveWindow,
+		AllowConnectionWindowIncrease:	  config.AllowConnectionWindowIncrease,
 		InitialConnectionReceiveWindow:   initialConnectionReceiveWindow,
 		MaxConnectionReceiveWindow:       maxConnectionReceiveWindow,
 		MaxIncomingStreams:               maxIncomingStreams,

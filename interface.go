@@ -62,9 +62,9 @@ var Err0RTTRejected = errors.New("0-RTT rejected")
 // SessionTracingKey can be used to associate a ConnectionTracer with a Session.
 // It is set on the Session.Context() context,
 // as well as on the context passed to logging.Tracer.NewConnectionTracer.
-var SessionTracingKey = sessionTracingCtxKey{}
+var ConnectionTracingKey = connTracingCtxKey{}
 
-type sessionTracingCtxKey struct{}
+type connTracingCtxKey struct{}
 
 // Stream is the interface implemented by QUIC streams
 // In addition to the errors listed on the Session,
@@ -148,7 +148,7 @@ type SendStream interface {
 // * HandshakeTimeoutError: when the cryptographic handshake takes too long (this is a net.Error timeout error)
 // * StatelessResetError: when we receive a stateless reset (this is a net.Error temporary error)
 // * VersionNegotiationError: returned by the client, when there's no version overlap between the peers
-type Session interface {
+type Connection interface {
 	// AcceptStream returns the next stream opened by the peer, blocking until one is available.
 	// If the session was closed due to a timeout, the error satisfies
 	// the net.Error interface, and Timeout() will be true.
@@ -202,19 +202,19 @@ type Session interface {
 	ReceiveMessage() ([]byte, error)
 }
 
-// An EarlySession is a session that is handshaking.
+// An EarlyConnection is a session that is handshaking.
 // Data sent during the handshake is encrypted using the forward secure keys.
 // When using client certificates, the client's identity is only verified
 // after completion of the handshake.
-type EarlySession interface {
-	Session
+type EarlyConnection interface {
+	Connection
 
 	// Blocks until the handshake completes (or fails).
 	// Data sent before completion of the handshake is encrypted with 1-RTT keys.
 	// Note that the client's identity hasn't been verified yet.
 	HandshakeComplete() context.Context
 
-	NextSession() Session
+	NextConnection() Connection
 }
 
 // Config contains all configuration data needed for a QUIC server or client.
@@ -269,6 +269,14 @@ type Config struct {
 	// MaxConnectionReceiveWindow is the connection-level flow control window for receiving data.
 	// If this value is zero, it will default to 15 MB.
 	MaxConnectionReceiveWindow uint64
+	// AllowConnectionWindowIncrease is called every time the connection flow controller attempts
+	// to increase the connection flow control window.
+	// If set, the caller can prevent an increase of the window. Typically, it would do so to
+	// limit the memory usage.
+	// To avoid deadlocks, it is not valid to call other functions on the connection or on streams
+	// in this callback.
+	AllowConnectionWindowIncrease func(sess Connection, delta uint64) bool
+
 	// MaxIncomingStreams is the maximum number of concurrent bidirectional streams that a peer is allowed to open.
 	// Values above 2^60 are invalid.
 	// If not set, it will default to 100.
@@ -298,7 +306,7 @@ type Config struct {
 	Tracer          logging.Tracer
 
 	//SCHEDULER: StreamPrior defines the weight given to each stream.
-	StreamPrior []int
+	StreamPrior []int64
 	//SCHEDULER: TypePrior defines the type of the priority scheduler--> abs: absolute priorities, wfq: weighted priorities, rr: round robin
 	TypePrior string
 }
@@ -316,7 +324,7 @@ type Listener interface {
 	// Addr returns the local network addr that the server is listening on.
 	Addr() net.Addr
 	// Accept returns new sessions. It should be called in a loop.
-	Accept(context.Context) (Session, error)
+	Accept(context.Context) (Connection, error)
 }
 
 // An EarlyListener listens for incoming QUIC connections,
@@ -327,5 +335,5 @@ type EarlyListener interface {
 	// Addr returns the local network addr that the server is listening on.
 	Addr() net.Addr
 	// Accept returns new early sessions. It should be called in a loop.
-	Accept(context.Context) (EarlySession, error)
+	Accept(context.Context) (EarlyConnection, error)
 }

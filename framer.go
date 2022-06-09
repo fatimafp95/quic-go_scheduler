@@ -2,6 +2,7 @@ package quic
 
 import (
 	"errors"
+	"fmt"
 	"github.com/lucas-clemente/quic-go/internal/ackhandler"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/wire"
@@ -35,7 +36,7 @@ type framerI struct {
 	controlFrameMutex sync.Mutex
 	controlFrames     []wire.Frame
 	streamPrior			Config
-	streamMapPrior map[protocol.StreamID]int //To match priorities with the stream ID
+	streamMapPrior map[protocol.StreamID]int64 //To match priorities with the stream ID
 
 }
 
@@ -96,24 +97,27 @@ func (f *framerI) AddActiveStream(id protocol.StreamID) {
 		f.streamQueue = append(f.streamQueue, id)
 		f.activeStreams[id] = struct{}{}
 	}
-
+	f.streamPrior.TypePrior = "abs"
+	f.streamPrior.StreamPrior = []int64{5, 7, 1}
 	switch f.streamPrior.TypePrior {
 	case "abs"://The stream queue is ordered by StreamPrior priorities slice.
-
+		fmt.Printf("\nEstás usando ABS\n")
 		lenQ := len(f.streamQueue)
 
 		// lenQ = 1 --> nothing to order
 		if lenQ == 1 {
 			return
 		}
-
 		//To assign priority to each slice in a map
 		if _, ok := f.streamMapPrior[id]; !ok{
 			f.streamMapPrior[id] = f.streamPrior.StreamPrior[lenQ-1]
 		}
+
 		//When an "old" stream arrives...
 		if len(f.streamQueue) > len(f.streamPrior.StreamPrior){
-			var prior int
+
+
+			var prior int64
 			var ok bool
 
 			// Unexpected stream arrives: leave it where it is, order nothing, priority 0
@@ -125,6 +129,7 @@ func (f *framerI) AddActiveStream(id protocol.StreamID) {
 			f.streamPrior.StreamPrior = append(f.streamPrior.StreamPrior, prior)
 		}
 
+
 		//Absolute priorization: the stream queue is ordered regarding the priorities of the stream (StreamPrior slice)
 		//which is also ordered
 		newPrior := f.streamPrior.StreamPrior[lenQ-1]
@@ -135,12 +140,15 @@ func (f *framerI) AddActiveStream(id protocol.StreamID) {
 			}
 		}
 		//To insert the stream ID and priority in the correct position
-		f.streamPrior.StreamPrior = append(f.streamPrior.StreamPrior[:correctPos],append([]int{newPrior},f.streamPrior.StreamPrior[correctPos:(lenQ-1)]...)...) //para quitarlo de la streamPrior original
+
+		f.streamPrior.StreamPrior = append(f.streamPrior.StreamPrior[:correctPos],append([]int64{newPrior},f.streamPrior.StreamPrior[correctPos:(lenQ-1)]...)...) //para quitarlo de la streamPrior original
 		f.streamQueue = append(f.streamQueue[:correctPos], append([]protocol.StreamID{id}, f.streamQueue[correctPos:(lenQ-1)]...)...)
 
 	//Weighted fair queueing: the stream IDs are repeated in the stream queue regarding its priority
 	case "wfq":
-		prior := 1
+		fmt.Printf("\nEstás usando wfq\n")
+
+		var prior int64 = 1
 
 		if v, ok := f.streamMapPrior[id]; ok {
 			prior = v
@@ -155,22 +163,27 @@ func (f *framerI) AddActiveStream(id protocol.StreamID) {
 		}
 
 		//Stream ID is replicated in the streamQueue
-		for m:= 0; m<prior-1; m++ {
+		var m int64
+		for m= 0; m<prior-1; m++ {
 			f.streamQueue = append(f.streamQueue, id)
 		}
 
 	case "rr": // stream ID has already been added
+		fmt.Printf("\nEstás usando RR\n")
+
 	default: // RR, already done ;)
 	}
+	//f.mutex.Unlock()
+
 }
 
 func (f *framerI) AppendStreamFrames(frames []ackhandler.Frame, maxLen protocol.ByteCount) ([]ackhandler.Frame, protocol.ByteCount) {
 	var length protocol.ByteCount
 	var lastFrame *ackhandler.Frame
 	f.mutex.Lock()
+
 	// pop STREAM frames, until less than MinStreamFrameSize bytes are left in the packet
 	numActiveStreams := len(f.streamQueue)
-
 	for i := 0; i < numActiveStreams; i++ {
 		if protocol.MinStreamFrameSize+length > maxLen {
 			break
@@ -194,14 +207,17 @@ func (f *framerI) AppendStreamFrames(frames []ackhandler.Frame, maxLen protocol.
 		frame, hasMoreData := str.popStreamFrame(remainingLen)
 
 		if f.streamPrior.TypePrior == "abs" {
+			fmt.Printf("\nEstás usando el ABS\n")
 			if hasMoreData { // put the stream front in the queue (at the beginning)
 				f.streamQueue = append([]protocol.StreamID{id},f.streamQueue...)
 			} else { // no more data to send. Stream is not active anymore
 				delete(f.activeStreams, id)
+
 				//Delete the priority of the stream in order not to confuse priorities with the arrival of new streams
 				f.streamPrior.StreamPrior=f.streamPrior.StreamPrior[1:]
 			}
 		}else{ //WFQ or RR
+			fmt.Printf("\nEstás usando RR\n")
 			if hasMoreData { // put the stream back in the queue (at the end)
 				f.streamQueue = append(f.streamQueue, id)
 			} else { // no more data to send. Stream is not active anymore
