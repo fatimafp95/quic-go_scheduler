@@ -2,6 +2,7 @@ package quic
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/lucas-clemente/quic-go/internal/utils"
@@ -99,6 +100,7 @@ func populateConfig(config *Config) *Config {
 	} else if maxIncomingUniStreams < 0 {
 		maxIncomingUniStreams = 0
 	}
+	fmt.Println("Hey there! I am using config!", config.StreamPrior)
 
 	return &Config{
 		Versions:                         versions,

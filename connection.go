@@ -528,7 +528,7 @@ func (s *connection) preSetup() {
 		s.perspective,
 		s.version,
 	)
-	s.framer = newFramer(s.streamsMap, s.version)
+	s.framer = newFramer(s.streamsMap, s.version, s.config)
 	s.receivedPackets = make(chan *receivedPacket, protocol.MaxConnUnprocessedPackets)
 	s.closeChan = make(chan closeError, 1)
 	s.sendingScheduled = make(chan struct{}, 1)
