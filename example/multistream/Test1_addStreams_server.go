@@ -13,6 +13,7 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"os"
 	"time"
 
 	//	"net"
@@ -20,13 +21,32 @@ import (
 	//	"time"
 )
 
-func streamCreator2 (sess quic.Connection, wg sync.WaitGroup) {
+var t2 trace2
+type trace2 struct{
+	fileName string
+	file *os.File
+	timeStart time.Time
+}
+func (t2 *trace2) PrintServer(tx_time int64, fileName string) {
+	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+		t2.file, _ = os.OpenFile(fileName, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+		fmt.Fprintf(t2.file, " TX TIME \n")
+	} else {
+		t2.file, _ = os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	}
 
-	defer wg.Done()
+	fmt.Fprintf(t2.file,"%f\n",tx_time)
+	t2.file.Close()
+}
+
+func streamCreator2 (sess quic.Connection, mb int, fileName string) int{
+
+	//defer wg.Done()
 
 	var end time.Time
 	var bytesReceived int
-	buf := make([]byte, 2621440) // Max. amount of data per stream...
+
+	buf := make([]byte, 1048576) // Max. amount of data per stream...
 
 	// As Pablo did...
 	type readFromConn interface {
@@ -42,7 +62,7 @@ func streamCreator2 (sess quic.Connection, wg sync.WaitGroup) {
 		for {
 			end = time.Now()
 
-			if err := conn.SetReadDeadline(end.Add(20 * time.Second)); err != nil {
+			if err := conn.SetReadDeadline(end.Add(25 * time.Second)); err != nil {
 				fmt.Println("Could not set connection read deadline: " + err.Error())
 			}
 
@@ -51,10 +71,13 @@ func streamCreator2 (sess quic.Connection, wg sync.WaitGroup) {
 			} else {
 				bytesReceived += n
 			}
-			fmt.Println("Number of bytes received: ",bytesReceived)
+			fmt.Println("Server - Number of bytes received: ",bytesReceived)
 		}
+
 		fmt.Println("Read deadline reached, finishing")
 	}
+
+
 
 	stream, err := sess.AcceptStream(context.Background())
 	if err != nil {
@@ -62,25 +85,28 @@ func streamCreator2 (sess quic.Connection, wg sync.WaitGroup) {
 	}else{
 		fmt.Println("Stream accepted: ",stream.StreamID())
 	}
-	//To know how many bytes the server is receiving from the client (???)
+
+	//To know how many bytes the server is receiving from the client
 	receiveAsMuchAsPossible(stream)
-
-	//It should show the total amount of bytes :')
-	var numBytes int64
-	numBytes, err = io.Copy(stream,stream)
-	fmt.Println("Stream ID:",stream.StreamID(),"\nTotal amount of bytes per each stream: ", numBytes)
-
-	// Close stream
-	if err = stream.Close(); err != nil {
-		fmt.Println("Failed to close the stream")
-	}
+	/*var maxFile int
+	maxFile +=bytesReceived
+	if maxFile == mb*1024*1024 {
+		fmt.Println("Maximum of bytes received:", maxFile)
+		endTX:=time.Now().UnixNano()
+		fmt.Println(endTX)
+		t2.PrintServer(endTX,fileName)
+	}*/
+	return bytesReceived
 }
 
 func main() {
 
 	// Listen on the given network address for QUIC connection
 	ip := flag.String("ip", "localhost:4242", "IP:Port Address")
-	numStreams:= flag.Int("numStreams",1, "Number of streams to use")
+	numStreams:= flag.Int("ns",1, "Number of streams to use")
+	mb := flag.Int("mb", 1, "File size in MiB")
+	fileName := flag.String("file","","Files name")
+
 	flag.Parse()
 
 	//QUIC config
@@ -94,6 +120,8 @@ func main() {
 
 
 	listener, err := quic.ListenAddr(*ip, GenerateTLSConfig(), quicConfig)
+	defer listener.Close()
+
 	fmt.Println("Server listening...")
 	if err != nil {
 		panic(err)
@@ -103,10 +131,9 @@ func main() {
 	go func() {
 		for {
 		sess, err := listener.Accept(context.Background())
-		fmt.Println("Connection accepted")
-
+		fmt.Println("Server: Connection accepted")
 		if err != nil {
-			fmt.Println("Error accepting: ", err.Error())
+			fmt.Println("Server: Error accepting: ", err.Error())
 			return
 		}
 		sess_chann <- sess
@@ -117,16 +144,36 @@ func main() {
 	fmt.Println("\nEstablished QUIC connection\n")
 
 	//Accepting and reading streams...
+	numThreads := *numStreams
+	maxBytes:=0
+	wg.Add(numThreads)
 	for i:=1;i<=*numStreams;i++ {
-		wg.Add(1)
 		go func() {
-			streamCreator2(sess, wg)
+			defer wg.Done()
+			maxBytes+=streamCreator2(sess, *mb, *fileName)
 		}()
 	}
 	wg.Wait()
+	fmt.Println("MaxBytes until now:",maxBytes)
+	if maxBytes==(*mb)*1024*1024{
+		fmt.Println("Maximum of bytes received:", maxBytes)
+		endTX:=time.Now().UnixNano()
+		fmt.Println(endTX)
+		t2.PrintServer(endTX,*fileName)
+	}
 
-	defer listener.Close()
+	// Close stream and connection
+	var errMsg string
 
+	if err = sess.CloseWithError(0, ""); err != nil {
+		errMsg += "; SessionErr:" + err.Error()
+	}
+	if errMsg != "" {
+		fmt.Println("Server: Connection closed with errors" + errMsg)
+	} else {
+		fmt.Println("Server: Connection closed")
+	}
+	fmt.Println("Acabado")
 }
 
 type Token2 struct {
