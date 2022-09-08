@@ -43,10 +43,11 @@ func streamOpener (session quic.Connection, msg []byte, i int, fileName string) 
 		fmt.Println("Timestamp start:",start)
 	}
 	infoStream, err:= stream.Write(msg)
-	fmt.Println("Client-Info",infoStream)
-		if (err != nil){
+	fmt.Println("Client-Info:",infoStream)
+	if (err != nil){
 		panic("Error sending info")
 	}
+	time.Sleep(1*time.Second)
 	if err = stream.Close(); err != nil {
 		fmt.Println("Failed to close the stream")
 	}
@@ -95,11 +96,12 @@ func main() {
 		panic("Failed to create QUIC session")
 	}
 
+	//time.Sleep(5*time.Second)
 
 	// Create the message to send
 	maxSendBytes :=  (*mb)*1024*1024
 	lenStream:=maxSendBytes/(*numStreams)
-	aux := 0
+
 	//QUIC open streams
 	numThreads := *numStreams
 	wg.Add(numThreads)
@@ -113,7 +115,6 @@ func main() {
 			streamOpener(session, message, i, *fileName)
 		}()
 		wg.Wait()
-		aux += lenStream
 	}
 
 	// Close stream and connection

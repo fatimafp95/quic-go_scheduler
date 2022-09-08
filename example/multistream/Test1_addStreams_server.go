@@ -41,8 +41,6 @@ func (t2 *trace2) PrintServer(tx_time int64, fileName string) {
 
 func streamCreator2 (sess quic.Connection, mb int, fileName string) int{
 
-	//defer wg.Done()
-
 	var end time.Time
 	var bytesReceived int
 
@@ -62,7 +60,11 @@ func streamCreator2 (sess quic.Connection, mb int, fileName string) int{
 		for {
 			end = time.Now()
 
-			if err := conn.SetReadDeadline(end.Add(25 * time.Second)); err != nil {
+			if conn == nil {
+				fmt.Println("Connection not found, surely closed.")
+				break
+			}
+			if err := conn.SetReadDeadline(end.Add(1 * time.Second)); err != nil {
 				fmt.Println("Could not set connection read deadline: " + err.Error())
 			}
 
@@ -113,7 +115,6 @@ func main() {
 	quicConfig := &quic.Config{
 		AcceptToken: AcceptToken2,
 	}
-	sess_chann := make(chan quic.Connection)
 
 	//Goroutines things
 	var wg sync.WaitGroup
@@ -128,19 +129,13 @@ func main() {
 	}
 
 	//Connection is accepted by the server...
-	go func() {
-		for {
-		sess, err := listener.Accept(context.Background())
-		fmt.Println("Server: Connection accepted")
-		if err != nil {
-			fmt.Println("Server: Error accepting: ", err.Error())
-			return
-		}
-		sess_chann <- sess
-		}
-	}()
-
-	sess := <-sess_chann //QUIC SESSION
+	//go func() {
+	sess, err := listener.Accept(context.Background())
+	fmt.Println("Server: Connection accepted")
+	if err != nil {
+		fmt.Println("Server: Error accepting: ", err.Error())
+		return
+	}
 	fmt.Println("\nEstablished QUIC connection\n")
 
 	//Accepting and reading streams...
@@ -162,8 +157,11 @@ func main() {
 		t2.PrintServer(endTX,*fileName)
 	}
 
+	//}()
+
+
 	// Close stream and connection
-	var errMsg string
+	/*var errMsg string
 
 	if err = sess.CloseWithError(0, ""); err != nil {
 		errMsg += "; SessionErr:" + err.Error()
@@ -173,7 +171,7 @@ func main() {
 	} else {
 		fmt.Println("Server: Connection closed")
 	}
-	fmt.Println("Acabado")
+	fmt.Println("Acabado")*/
 }
 
 type Token2 struct {
