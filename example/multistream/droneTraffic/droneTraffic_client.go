@@ -2,12 +2,14 @@ package main
 
 import (
 	"crypto/tls"
+	"encoding/csv"
 	"flag"
 	"fmt"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/internal/utils"
 	"io"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"strconv"
@@ -15,19 +17,16 @@ import (
 	"sync"
 	"time"
 
-	//"github.com/lucas-clemente/quic-go"
-	//	"io"
-	//	"log"
-	//	"math/rand"
-	"encoding/csv"
-	//"os"
-	//	"sync"
-	//"time"
 )
 //Application: during 400 seconds, the drone will transmit a emulation of video traffic and, in some points, it will send traffic control. (drone traces)
 
-
-/*func (t *trace) Print(tx_time int64, fileName string) {
+var t trace
+type trace struct{
+	fileName string
+	file *os.File
+	timeStart time.Time
+}
+func (t *trace) Print(tx_time int64, fileName string) {
 	if _, err := os.Stat(fileName); os.IsNotExist(err) {
 		t.file, _ = os.OpenFile(fileName, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
 		fmt.Fprintf(t.file, " TX TIME \n")
@@ -37,13 +36,14 @@ import (
 
 	fmt.Fprintf(t.file,"%d\n",tx_time)
 	t.file.Close()
-}*/
+}
 
 func streamOpener (session quic.Connection) quic.Stream {
 	stream, err := session.OpenStream()
 	if (err != nil){
 		panic("Error opening stream")
 	}
+	fmt.Println("Stream opened with the ID:",stream.StreamID())
 	return stream
 }
 
@@ -54,6 +54,7 @@ type DroneTraces struct {
 	nPkt        string//int
 	tPktout     string//time.Ticker
 	source      string
+	sourcePort	string
 	destination string
 	lengthTotal string//int
 	dataLen     string//int
@@ -75,8 +76,10 @@ func droneData(data [][]string) []DroneTraces {
 					record.destination =field
 				}else if j==5 {
 					record.lengthTotal = field
-				}else if j== 6 {
+				}else if j==6 {
 					record.dataLen = field
+				}else if j==7{
+					record.sourcePort = field
 				}
 			}
 			droneTraces = append(droneTraces,record)
@@ -85,14 +88,20 @@ func droneData(data [][]string) []DroneTraces {
 
 	return droneTraces
 }
+
+// NewTimer creates a new timer that is not set
+func NewTimer() *utils.Timer {
+	return &utils.Timer{T: time.NewTimer(time.Duration(math.MaxInt64))}
+}
+
 func main(){
 	// Listen on the given network address for QUIC connection
 	keyLogFile := flag.String("keylog", "", "key log file")
 	ip := flag.String("ip", "localhost:4242", "IP:Port Address")
 	numStreams:= flag.Int("ns",1, "Number of streams to use")
 	mb := flag.Int("mb", 1, "File size in MiB")
-	//fileName := flag.String("file","","Files name")
-	scheduler := flag.String("scheduler", "rr", "Scheduler type: rr=Round Robin, wfq=Weigh Fair queueing, abs=Absolute Priorization")
+//	fileName := flag.String("file","","Files name")
+	scheduler := flag.String("scheduler", "rr", "Scheduler type: rr=Round Robin, wfq=Weight Fair queueing, abs=Absolute Priorization")
 	order := flag.String("order", "1", "Weight or position to process each stream.")
 
 	flag.Parse()
@@ -122,6 +131,7 @@ func main(){
 		destination [167349]string
 		lengthTotal	[167349]int
 		dataLen [167349]int
+		sourcePort [167349]string
 	)
 	for i:=0; i <167349;i++{
 		nPkt[i], _ =strconv.Atoi(droneTrace[i].nPkt)
@@ -130,6 +140,7 @@ func main(){
 		destination[i] = droneTrace[i].destination
 		lengthTotal[i], _ =strconv.Atoi(droneTrace[i].lengthTotal)
 		dataLen[i],_ = strconv.Atoi(droneTrace[i].dataLen)
+		sourcePort[i] = droneTrace[i].sourcePort
 	}
 	var aux, aux3 string
 	var aux2 []string
@@ -156,13 +167,12 @@ func main(){
 		}
 		sliceDifTime[i]=diff
 	}
-	fmt.Println(len(sliceDifTime))
 
 	//Slice int con microsegundos-->duration es int64 y define nanosegundos
-	var t []time.Duration
+	var temp [167349]time.Duration
 	for i, _ := range sliceDifTime {
-		t[i] = time.Duration(sliceDifTime[i] * 1000) //para hacer nano segundos
-		t[i].Milliseconds()
+		temp[i] = time.Duration(sliceDifTime[i] * 1000) //para hacer nano segundos
+		temp[i].Milliseconds()
 	}
 
 	//Creation of the priorizaton slice
@@ -176,10 +186,10 @@ func main(){
 		}
 		slice[i]=value
 	}
-	//fmt.Print(slice)
 
 	//QUIC config
 	quicConfig := &quic.Config{
+		DisablePathMTUDiscovery: true,
 		TypePrior: *scheduler,
 		StreamPrior: slice,
 	}
@@ -206,58 +216,79 @@ func main(){
 	session, err := quic.DialAddr(*ip,tlsConf, quicConfig)
 	if err != nil{
 		panic("Failed to create QUIC session")
+	}else{
+		fmt.Println("QUIC session created\n")
 	}
 
 
 	//QUIC open streams
-	var stream quic.Stream
 	numThreads := *numStreams
+	var mutex sync.Mutex
+	var stream [2]quic.Stream
 	wg.Add(numThreads)
-	for i:=1; i<=numThreads;i++{
+	for i:=0; i<numThreads;i++{
+		mutex.Lock()
 		go func(i int) {
 			defer wg.Done()
-			stream = streamOpener(session)
+			stream[i] = streamOpener(session)
+			mutex.Unlock()
 		}(i)
 	}
 	wg.Wait()
-
+	fmt.Println("Lista de streams:",stream[0].StreamID(),stream[1].StreamID())
 	// Create the message to send->Bulk message
-	maxSendBytes :=  (*mb)*1024*1024*1024
+	maxSendBytes :=  (*mb)*1024//*1024
 	messageBulk := make([]byte, maxSendBytes) // Generate a message of PACKET_SIZE full of random information
 	if n, err := rand.Read(messageBulk); err != nil {
 		panic(fmt.Sprintf("Failed to create test message: wrote %d/%d Bytes; %v\n", n, maxSendBytes, err))
 	}
-	wg.Add(numThreads)
+
+
+	wg.Add(1)
 	go func() {
-			defer wg.Done()
-			if stream.StreamID()== 4{
-				stream.Write(messageBulk)
-			} else {
-				for j:=0 ;j<len(nPkt);j++{
-					timeStamp:=time.Now().Add(t[j])
-					utils.Timer.Reset(timeStamp)
-					messageDrone := make([]byte, dataLen[j]-3) // Generate a message of PACKET_SIZE full of random information
-					messageDrone=append(messageDrone, 1, 1, 1)
-					if n, err := rand.Read(messageDrone); err != nil {
-						panic(fmt.Sprintf("Failed to create test message: wrote %d/%d Bytes; %v\n", n, maxSendBytes, err))
-					}
-					stream.Write(messageDrone)
+		defer wg.Done()
+		stream[1].Write(messageBulk)
+	}()
+	//wg.Wait()
+	message2 := make([]byte,maxSendBytes)
+	b := []byte("HOLA")
+	message2 = append(message2,b...)
+	wg.Add(1)
+	go func(){
+		defer wg.Done()
+		fmt.Println("Drone file is reading")
+		//if stream[1].StreamID() == 8{
+		fmt.Println("Estoy dentro del stream 0")
+		stream[0].Write(message2)
+
+		/**************DRONE MESSAGES******************/
+		//timer := NewTimer()
+		/*for j:=0 ;j<len(nPkt);j++{
+			if strings.HasPrefix(sourcePort[j],"58409") {
+				fmt.Println("Soy la iteración:", j)
+				messageDrone[dataLen[j]-1] = 1
+				messageD := messageDrone[:dataLen[j]]
+
+				fmt.Println("Longitud messageDrone: ", len(messageD))
+
+				start := time.Now().UnixNano()
+				t.Print(start, *fileName)
+				stream[0].Write(messageD)
+				//timeStamp:=time.Now().Add(temp[j])
+				time.Sleep(temp[j])
+				//fmt.Println("TimeStamp:", timeStamp)
+				fmt.Println("Time Diff:", temp[j])
+				/*if((time.Now().Add(time.Millisecond*5))).After(timeStamp){
+					continue
 				}
-			}
-		}()
-	}
-
-	// Close stream and connection
-	/*var errMsg string
-
-	if err = session.CloseWithError(0, ""); err != nil {
-		errMsg += "; SessionErr: " + err.Error()
-	}
-	if errMsg != "" {
-		fmt.Println("Client: Connection closed with errors" + errMsg)
-	} else {
-		fmt.Println("Client: Connection closed")
-	}*/
-
-
+				timer.Reset(timeStamp) //Deadline
+				<- timer.Chan()
+				fmt.Print(timer.Chan())
+				fmt.Println("Hola chan")
+			}else{
+				continue
+			}*/
+		//}
+	}()
+	wg.Wait()
 }

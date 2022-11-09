@@ -13,8 +13,8 @@ import (
 	"math/big"
 	"net"
 	"os"
-	"strconv"
-	"strings"
+//	"strconv"
+//	"strings"
 	"sync"
 	"time"
 )
@@ -36,13 +36,21 @@ func (t *trace) PrintServer(tx_time int64, fileName string) {
 	fmt.Fprintf(t.file,"%d\n",tx_time)
 	t.file.Close()
 }
+func (t *trace) PrintBulk(tx_time int64, fileName string) {
+	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+		t.file, _ = os.OpenFile(fileName, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+		fmt.Fprintf(t.file, " TX TIME \n")
+	} else {
+		t.file, _ = os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	}
 
-func streamCreator (sess quic.Connection, mb int, fileName string) (int, quic.StreamID){
+	fmt.Fprintf(t.file,"Bulk: %d\n",tx_time)
+	t.file.Close()
+}
+func streamCreator(sess quic.Connection, fileName string) int {
 
-	var end time.Time
 	var bytesReceived int
-	count:=0
-	buf := make([]byte, 10485760) // Max. amount of data per stream...
+	buf := make([]byte, 10486784) // Max. amount of data per stream...
 
 	// As Pablo did...
 	type readFromConn interface {
@@ -54,15 +62,13 @@ func streamCreator (sess quic.Connection, mb int, fileName string) (int, quic.St
 		//io.Reader
 		Read(p []byte) (n int, err error)
 	}
-	receiveAsMuchAsPossible := func(conn readFromConn) {
+	receiveAsMuchAsPossible := func(conn readFromConn, streamID quic.StreamID) {
 		for {
-			end = time.Now()
-
 			if conn == nil {
 				fmt.Println("Connection not found, surely closed.")
 				break
 			}
-			if err := conn.SetReadDeadline(end.Add(1 * time.Second)); err != nil {
+			if err := conn.SetReadDeadline(time.Now().Add(3*time.Millisecond)); err != nil {
 				fmt.Println("Could not set connection read deadline: " + err.Error())
 			}
 
@@ -70,13 +76,19 @@ func streamCreator (sess quic.Connection, mb int, fileName string) (int, quic.St
 				break
 			} else {
 				bytesReceived += n
-				if buf[n]==1 {
-					count++
-					if count==3{
-
-					}
-				}
+				fmt.Println("StreamID:", streamID)
+				fmt.Println(n)
+				fmt.Println(buf[n-4])
+				/*if buf[n-2] == 0 && buf[n-1]==1 {
+					t.PrintServer(time.Now().UnixNano(), fileName)
+				}else if buf[n-4] == 'H'  {
+					fmt.Println("HOLA")
+					t.PrintServer(time.Now().UnixNano(), fileName)
+				}else{*/
+					t.PrintBulk(time.Now().UnixNano(), fileName)
+				//}
 			}
+
 			fmt.Println("Server - Number of bytes received: ",bytesReceived)
 		}
 
@@ -93,16 +105,9 @@ func streamCreator (sess quic.Connection, mb int, fileName string) (int, quic.St
 	}
 
 	//To know how many bytes the server is receiving from the client
-	receiveAsMuchAsPossible(stream)
-	/*var maxFile int
-	maxFile +=bytesReceived
-	if maxFile == mb*1024*1024 {
-		fmt.Println("Maximum of bytes received:", maxFile)
-		endTX:=time.Now().UnixNano()
-		fmt.Println(endTX)
-		t2.PrintServer(endTX,fileName)
-	}*/
-	return bytesReceived, stream.StreamID()
+	receiveAsMuchAsPossible(stream, stream.StreamID())
+
+	return bytesReceived
 }
 
 func main(){
@@ -112,11 +117,11 @@ func main(){
 	numStreams:= flag.Int("ns",1, "Number of streams to use")
 	mb := flag.Int("mb", 1, "File size in MiB")
 	fileName := flag.String("file","","Files name")
-	scheduler := flag.String("scheduler", "rr", "Scheduler type: rr=Round Robin, wfq=Weighted Fair queueing, abs=Absolute Priorization")
-	order := flag.String("order", "1", "Weight or position to process each stream.")
-
+//	scheduler := flag.String("scheduler", "rr", "Scheduler type: rr=Round Robin, wfq=Weighted Fair queueing, abs=Absolute Priorization")
+//	order := flag.String("order", "1", "Weight or position to process each stream.")
 	flag.Parse()
-	//Creation of the priorizaton slice
+
+	/*//Creation of the priorizaton slice
 	splitString:=strings.Split(*order, "")
 	lenPrior := len(*order)
 	slice :=make([]int,lenPrior)
@@ -129,17 +134,19 @@ func main(){
 		slice[i]=value
 	}
 	fmt.Print(slice)
-
+	fmt.Println("Server:quic config...")
+*/
 	//QUIC config
 	quicConfig := &quic.Config{
 		AcceptToken: AcceptToken,
-		TypePrior: *scheduler,
-		StreamPrior: slice,
+		//TypePrior: *scheduler,
+		//StreamPrior: slice,
 	}
 
 
 	//Goroutines things
 	var wg sync.WaitGroup
+	fmt.Println("Server ready...")
 
 	listener, err := quic.ListenAddr(*ip, GenerateTLSConfig(), quicConfig)
 	defer listener.Close()
@@ -164,17 +171,17 @@ func main(){
 	for i:=1;i<=*numStreams;i++ {
 		go func() {
 			defer wg.Done()
-			maxBytes+=streamCreator(sess, *mb, *fileName)
+			maxBytes+=streamCreator(sess, *fileName)
 		}()
 	}
 	wg.Wait()
-	fmt.Println("MaxBytes until now:",maxBytes)
 	if maxBytes==(*mb)*1024*1024{
 		fmt.Println("Maximum of bytes received:", maxBytes)
 		endTX:=time.Now().UnixNano()
 		fmt.Println(endTX)
 		t.PrintServer(endTX,*fileName)
 	}
+	fmt.Println("MaxBytes until now:",maxBytes)
 }
 
 type Token struct {
