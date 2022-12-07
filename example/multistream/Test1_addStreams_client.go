@@ -28,7 +28,7 @@ func (t *trace) Print(tx_time int64, fileName string) {
 		t.file, _ = os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	}
 
-	fmt.Fprintf(t.file,"%f\n",tx_time)
+	fmt.Fprintf(t.file,"%d\n",tx_time)
 	t.file.Close()
 }
 
@@ -37,7 +37,9 @@ func streamOpener (session quic.Connection, msg []byte, i int, fileName string) 
 	if (err != nil){
 		panic("Error opening stream")
 	}
-	if i==1 {
+	fmt.Println("VALOR DE I:", i)
+	if i == 1 {
+		fmt.Println("HOLA SOY EL PRIMER STREAM")
 		start := time.Now().UnixNano()
 		t.Print(start, fileName) //TimeStamp for the initial stream
 		fmt.Println("Timestamp start:",start)
@@ -105,17 +107,17 @@ func main() {
 	//QUIC open streams
 	numThreads := *numStreams
 	wg.Add(numThreads)
-	for i:=1; i<=*numStreams;i++{
-		go func() {
+	for i:=1; i<=numThreads;i++{
+		go func(i int) {
 			defer wg.Done()
 			message := make([]byte, lenStream) // Generate a message of PACKET_SIZE full of random information
 			if n, err := rand.Read(message); err != nil {
 				panic(fmt.Sprintf("Failed to create test message: wrote %d/%d Bytes; %v\n", n, maxSendBytes, err))
 			}
 			streamOpener(session, message, i, *fileName)
-		}()
-		wg.Wait()
+		}(i)
 	}
+	wg.Wait()
 
 	// Close stream and connection
 	var errMsg string

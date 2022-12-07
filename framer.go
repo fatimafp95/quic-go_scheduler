@@ -37,7 +37,7 @@ type framerI struct {
 	controlFrames  []wire.Frame
 	config         *Config
 	streamMapPrior map[protocol.StreamID]int //To match priorities with the stream ID
-
+	auxPriorSlice []int
 }
 
 var _ framer = &framerI{}
@@ -99,96 +99,91 @@ func (f *framerI) AddActiveStream(id protocol.StreamID) {
 	if _, ok := f.activeStreams[id]; !ok {
 		f.streamQueue = append(f.streamQueue, id)
 		f.activeStreams[id] = struct{}{}
-	}
-	fmt.Println("AddActiveStream Streamqueue UPD: %v", f.streamQueue)
-	fmt.Println("AddActiveStream StreamPrior: %v", f.config.StreamPrior)
-	//f.config.TypePrior = "abs"
-	switch f.config.TypePrior {
-	case "abs"://The stream queue is ordered by StreamPrior priorities slice.
-		fmt.Println("\nEstás usando ABS\n")
-		lenQ := len(f.streamQueue)
-		fmt.Println("Inicio del case de abs el valor de la streamqueue es: %v \n",f.streamQueue)
 
-		// lenQ = 1 --> nothing to order
-		if lenQ == 1 {
-			return
-		}
-		//To assign priority to each slice in a map
-		if _, ok := f.streamMapPrior[id]; !ok{
-			f.streamMapPrior[id] = f.config.StreamPrior[lenQ-1]
-		}
+		fmt.Println("AddActiveStream Streamqueue UPD: ", f.streamQueue, id)
+		fmt.Println("AddActiveStream StreamPrior: ", f.config.StreamPrior)
 
-		//When an "old" stream arrives...
-		if len(f.streamQueue) > len(f.config.StreamPrior){
+		switch f.config.TypePrior {
+		case "abs"://The stream queue is ordered by StreamPrior priorities slice.
 
-			var prior int
-			var ok bool
-
-			// Unexpected stream arrives: leave it where it is, order nothing, priority 0
-			if prior, ok = f.streamMapPrior[id]; !ok {
-				f.streamMapPrior[id] = 0
-				prior = 0
+			lenQ := len(f.streamQueue)
+			prior := 1
+			fmt.Println("Inicio del case de abs el valor de la streamqueue es: \n",f.streamQueue, lenQ, prior,f.config.StreamPrior)
+			//To assign priority to each slice in a map
+			if v, ok := f.streamMapPrior[id]; ok {
+				prior=v
+			}else{
+				fmt.Println("Else: \n",f.streamQueue, lenQ, prior,f.config.StreamPrior)
+				if len(f.config.StreamPrior) > 0 {
+					prior = f.config.StreamPrior[0]
+					fmt.Println("Inicio del if len(f.config.Streamprior>0): \n",f.streamQueue, lenQ, prior,f.config.StreamPrior)
+					fmt.Println("Valor de auxPriorSlice: \n",f.auxPriorSlice)
+					f.config.StreamPrior = f.config.StreamPrior[1:] //Delete the used priority for the next stream
+					fmt.Println("Final del if len(f.config.Streamprior>0): \n",f.streamQueue, lenQ, prior,f.config.StreamPrior, f.auxPriorSlice)
+				}
+				f.streamMapPrior[id] = prior ///To assign priority to each slice in a map
 			}
-			//Expected stream arrives: add again its priority
-			f.config.StreamPrior = append(f.config.StreamPrior, prior)
-		}
 
-		//Absolute priorization: the stream queue is ordered regarding the priorities of the stream (StreamPrior slice)
-		//which is also ordered
-		fmt.Println(">>> order find-", f.streamQueue, f.config.StreamPrior)
-		posIni := lenQ-1
-		newPrior := f.config.StreamPrior[posIni]
-		var correctPos int //Correct position of the stream/prior regarding the prior
-		for i := lenQ-1; i >= 0 ; i--{
-			if  newPrior >= f.config.StreamPrior[i] {
-				correctPos=i
+			f.auxPriorSlice = append(f.auxPriorSlice,prior)
+			fmt.Println(f.streamMapPrior)
+
+			//Absolute priorization: the stream queue is ordered regarding the priorities of the stream (StreamPrior slice)
+			//which is also ordered
+			fmt.Println(">>> order find-", f.streamQueue, f.auxPriorSlice)
+			posIni := lenQ-1
+			newPrior := f.auxPriorSlice[posIni]
+			var correctPos int //Correct position of the stream/prior regarding the prior
+			for i := lenQ-1; i >= 0 ; i--{
+				if  newPrior >= f.auxPriorSlice[i] {
+					correctPos=i
+				}
 			}
-		}
-		//To insert the stream ID and priority in the correct position
+			//To insert the stream ID and priority in the correct position
+			fmt.Println(">>> order start", f.streamQueue, f.auxPriorSlice, correctPos)
+			auxSlice := append(f.auxPriorSlice[:correctPos], append([]int{newPrior}, f.auxPriorSlice[correctPos:posIni]...)...)
+			copy(f.auxPriorSlice, auxSlice)
 
-		fmt.Println(">>> order start", f.streamQueue, f.config.StreamPrior, correctPos)
-		auxSlice := append(f.config.StreamPrior[:correctPos], append([]int{newPrior}, f.config.StreamPrior[:posIni]...)...)
-		copy(f.config.StreamPrior, auxSlice)
+			//f.config.StreamPrior = append(f.config.StreamPrior[:correctPos],append([]int{newPrior},f.config.StreamPrior[posIni:]...)...) //para quitarlo de la config original
 
-		//f.config.StreamPrior = append(f.config.StreamPrior[:correctPos],append([]int{newPrior},f.config.StreamPrior[posIni:]...)...) //para quitarlo de la config original
-		f.streamQueue = append(f.streamQueue[:correctPos], append([]protocol.StreamID{id}, f.streamQueue[correctPos:posIni]...)...)
-		// slice[:correctPos] + [5] + slice[initPos:]
-		fmt.Println(">>> order -end-", f.streamQueue, f.config.StreamPrior)
+			f.streamQueue = append(f.streamQueue[:correctPos], append([]protocol.StreamID{id}, f.streamQueue[correctPos:posIni]...)...)
+			// slice[:correctPos] + [5] + slice[initPos:]
+			fmt.Println(">>> order -end-", f.streamQueue, f.auxPriorSlice)
 
 
-	//Weighted fair queueing: the stream IDs are repeated in the stream queue regarding its priority
-	case "wfq":
-		fmt.Println("\nEstás usando wfq\n")
-		fmt.Println("Inicio del case de wfq el valor de la streamqueue es: %v",f.streamQueue)
+		//Weighted fair queueing: the stream IDs are repeated in the stream queue regarding its priority
+		case "wfq":
+			fmt.Println("\nEstás usando wfq\n")
+			fmt.Println("Inicio del case de wfq el valor de la streamqueue es: %v",f.streamQueue)
 
-		prior := 1
+			prior := 1
 
-		if v, ok := f.streamMapPrior[id]; ok {
-			prior = v
-		} else {
-			//If there is priorities in the StreamPrior slice, pick the first one which corresponds to the curren stream:
-			if len(f.config.StreamPrior) > 0 {
-				prior = f.config.StreamPrior[0]
-				f.config.StreamPrior = f.config.StreamPrior[1:] //Delete the used priority for the next stream
+			if v, ok := f.streamMapPrior[id]; ok {
+				prior = v
+			} else {
+				//If there is priorities in the StreamPrior slice, pick the first one which corresponds to the current stream:
+				if len(f.config.StreamPrior) > 0 {
+					prior = f.config.StreamPrior[0]
+					f.config.StreamPrior = f.config.StreamPrior[1:] //Delete the used priority for the next stream
+				}
+				f.streamMapPrior[id] = prior ///To assign priority to each slice in a map
+				fmt.Println("Asignación de prioridades a los streams, estado de la streamqueue es: %v",f.streamQueue)
+
 			}
-			f.streamMapPrior[id] = prior ///To assign priority to each slice in a map
-			fmt.Println("Asignación de prioridades a los streams, estado de la streamqueue es: %v",f.streamQueue)
+			fmt.Println(f.streamMapPrior)
+			//Stream ID is replicated in the streamQueue
+			fmt.Println("WFQ: Replicando los IDs")
+			for m:= 0; m<prior-1; m++ {
+				f.streamQueue = append(f.streamQueue, id)
+			}
+			fmt.Println("%v",f.streamQueue)
 
+		case "rr": // stream ID has already been added
+			fmt.Println("\nEstás usando RR\n")
+
+		default: // RR, already done ;)
 		}
-
-		//Stream ID is replicated in the streamQueue
-		fmt.Println("WFQ: Replicando los IDs")
-		for m:= 0; m<prior-1; m++ {
-			f.streamQueue = append(f.streamQueue, id)
-		}
-		fmt.Println("%v",f.streamQueue)
-
-	case "rr": // stream ID has already been added
-		fmt.Println("\nEstás usando RR\n")
-
-	default: // RR, already done ;)
-	}
 	//f.mutex.Unlock()
+	}
 
 }
 
@@ -226,14 +221,13 @@ func (f *framerI) AppendStreamFrames(frames []ackhandler.Frame, maxLen protocol.
 		frame, hasMoreData := str.popStreamFrame(remainingLen)
 
 		if f.config.TypePrior == "abs" {
-			fmt.Println("Estás usando el ABS")
+			//fmt.Println("Estás usando el ABS")
 			if hasMoreData { // put the stream front in the queue (at the beginning)
 				f.streamQueue = append([]protocol.StreamID{id},f.streamQueue...)
 			} else { // no more data to send. Stream is not active anymore
 				delete(f.activeStreams, id)
-
 				//Delete the priority of the stream in order not to confuse priorities with the arrival of new streams
-				f.config.StreamPrior=f.config.StreamPrior[1:]
+				f.auxPriorSlice=f.auxPriorSlice[1:]
 			}
 		}else{ //WFQ or RR
 			if hasMoreData { // put the stream back in the queue (at the end)
@@ -268,7 +262,7 @@ func (f *framerI) AppendStreamFrames(frames []ackhandler.Frame, maxLen protocol.
 
 func (f *framerI) CleanStreamQueueWFQ(id protocol.StreamID){
 	if f.config.TypePrior == "wfq"{
-		fmt.Printf("\nEstás usando WFQ\n")
+		fmt.Printf("\nEstás en CleanStreamQueueWFQ\n")
 		for i := len(f.streamQueue)-1; i >= 0; i-- {
 			fmt.Println(">>>", f.streamQueue, i)
 			if f.streamQueue[i] == id {

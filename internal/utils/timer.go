@@ -7,19 +7,19 @@ import (
 
 // A Timer wrapper that behaves correctly when resetting
 type Timer struct {
-	t        *time.Timer
-	read     bool
+	T    *time.Timer
+	read bool
 	deadline time.Time
 }
 
 // NewTimer creates a new timer that is not set
 func NewTimer() *Timer {
-	return &Timer{t: time.NewTimer(time.Duration(math.MaxInt64))}
+	return &Timer{T: time.NewTimer(time.Duration(math.MaxInt64))}
 }
 
 // Chan returns the channel of the wrapped timer
 func (t *Timer) Chan() <-chan time.Time {
-	return t.t.C
+	return t.T.C
 }
 
 // Reset the timer, no matter whether the value was read or not
@@ -31,11 +31,11 @@ func (t *Timer) Reset(deadline time.Time) {
 
 	// We need to drain the timer if the value from its channel was not read yet.
 	// See https://groups.google.com/forum/#!topic/golang-dev/c9UUfASVPoU
-	if !t.t.Stop() && !t.read {
-		<-t.t.C
+	if !t.T.Stop() && !t.read {
+		<-t.T.C
 	}
 	if !deadline.IsZero() {
-		t.t.Reset(time.Until(deadline))
+		t.T.Reset(time.Until(deadline))
 	}
 
 	t.read = false
@@ -49,5 +49,5 @@ func (t *Timer) SetRead() {
 
 // Stop stops the timer
 func (t *Timer) Stop() {
-	t.t.Stop()
+	t.T.Stop()
 }

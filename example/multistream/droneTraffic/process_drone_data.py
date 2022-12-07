@@ -3,7 +3,7 @@
 import os
 import pandas as pd
 
-df = pd.read_csv('drone.csv', dtype=object)
+df = pd.read_csv('experiment1/drone.csv', dtype=object)
 
 # clean
 df = df[df.Protocol == 'UDP']

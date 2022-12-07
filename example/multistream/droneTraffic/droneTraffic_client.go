@@ -6,10 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"github.com/lucas-clemente/quic-go"
-	"github.com/lucas-clemente/quic-go/internal/utils"
+	//"github.com/lucas-clemente/quic-go/internal/utils"
 	"io"
 	"log"
-	"math"
+	//"math"
 	"math/rand"
 	"os"
 	"strconv"
@@ -89,18 +89,13 @@ func droneData(data [][]string) []DroneTraces {
 	return droneTraces
 }
 
-// NewTimer creates a new timer that is not set
-func NewTimer() *utils.Timer {
-	return &utils.Timer{T: time.NewTimer(time.Duration(math.MaxInt64))}
-}
-
 func main(){
 	// Listen on the given network address for QUIC connection
 	keyLogFile := flag.String("keylog", "", "key log file")
 	ip := flag.String("ip", "localhost:4242", "IP:Port Address")
 	numStreams:= flag.Int("ns",1, "Number of streams to use")
 	mb := flag.Int("mb", 1, "File size in MiB")
-//	fileName := flag.String("file","","Files name")
+	fileName := flag.String("file","","Files name")
 	scheduler := flag.String("scheduler", "rr", "Scheduler type: rr=Round Robin, wfq=Weight Fair queueing, abs=Absolute Priorization")
 	order := flag.String("order", "1", "Weight or position to process each stream.")
 
@@ -145,8 +140,7 @@ func main(){
 	var aux, aux3 string
 	var aux2 []string
 	var sliceTime [167349]int
-	//var count1	int
-	//var count2	int
+
 	for i:=0;i<167349;i++ {
 		aux = tPktout[i]
 		aux2 = strings.Split(aux, ".")
@@ -236,8 +230,9 @@ func main(){
 	}
 	wg.Wait()
 	fmt.Println("Lista de streams:",stream[0].StreamID(),stream[1].StreamID())
+
 	// Create the message to send->Bulk message
-	maxSendBytes :=  (*mb)*1024//*1024
+	maxSendBytes :=  (*mb)*1024*1024
 	messageBulk := make([]byte, maxSendBytes) // Generate a message of PACKET_SIZE full of random information
 	if n, err := rand.Read(messageBulk); err != nil {
 		panic(fmt.Sprintf("Failed to create test message: wrote %d/%d Bytes; %v\n", n, maxSendBytes, err))
@@ -249,21 +244,20 @@ func main(){
 		defer wg.Done()
 		stream[1].Write(messageBulk)
 	}()
-	//wg.Wait()
+	/**********Mensaje de prueba
 	message2 := make([]byte,maxSendBytes)
 	b := []byte("HOLA")
-	message2 = append(message2,b...)
+	message2 = append(message2,b...)**********/
+	messageDrone := make([]byte, 1200)
 	wg.Add(1)
-	go func(){
+	go func() {
 		defer wg.Done()
-		fmt.Println("Drone file is reading")
-		//if stream[1].StreamID() == 8{
-		fmt.Println("Estoy dentro del stream 0")
-		stream[0].Write(message2)
+		fmt.Println("Drone file is being read")
+
+		//Mensaje de prueba: stream[0].Write(message2)
 
 		/**************DRONE MESSAGES******************/
-		//timer := NewTimer()
-		/*for j:=0 ;j<len(nPkt);j++{
+		for j:=0 ;j<len(nPkt);j++{
 			if strings.HasPrefix(sourcePort[j],"58409") {
 				fmt.Println("Soy la iteración:", j)
 				messageDrone[dataLen[j]-1] = 1
@@ -279,16 +273,17 @@ func main(){
 				//fmt.Println("TimeStamp:", timeStamp)
 				fmt.Println("Time Diff:", temp[j])
 				/*if((time.Now().Add(time.Millisecond*5))).After(timeStamp){
+						continue
+					}
+					timer.Reset(timeStamp) //Deadline
+					<- timer.Chan()
+					fmt.Print(timer.Chan())
+					fmt.Println("Hola chan")
+				}else{
 					continue
-				}
-				timer.Reset(timeStamp) //Deadline
-				<- timer.Chan()
-				fmt.Print(timer.Chan())
-				fmt.Println("Hola chan")
-			}else{
-				continue
-			}*/
-		//}
+				}*/
+			}
+		}
 	}()
 	wg.Wait()
 }

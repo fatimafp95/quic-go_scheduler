@@ -35,7 +35,7 @@ func (t2 *trace2) PrintServer(tx_time int64, fileName string) {
 		t2.file, _ = os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	}
 
-	fmt.Fprintf(t2.file,"%f\n",tx_time)
+	fmt.Fprintf(t2.file,"%d\n",tx_time)
 	t2.file.Close()
 }
 
@@ -44,7 +44,7 @@ func streamCreator2 (sess quic.Connection, mb int, fileName string) int{
 	var end time.Time
 	var bytesReceived int
 
-	buf := make([]byte, 1048576) // Max. amount of data per stream...
+	buf := make([]byte, 10485824) // Max. amount of data per stream...
 
 	// As Pablo did...
 	type readFromConn interface {

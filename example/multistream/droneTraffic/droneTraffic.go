@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/lucas-clemente/quic-go"
+	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"math/big"
 	"net"
 	"os"
@@ -50,7 +51,7 @@ func (t *trace) PrintBulk(tx_time int64, fileName string) {
 func streamCreator(sess quic.Connection, fileName string) int {
 
 	var bytesReceived int
-	buf := make([]byte, 10486784) // Max. amount of data per stream...
+	buf := make([]byte, protocol.InitialPacketSizeIPv4) // Max. amount of data per stream...
 
 	// As Pablo did...
 	type readFromConn interface {
@@ -68,7 +69,7 @@ func streamCreator(sess quic.Connection, fileName string) int {
 				fmt.Println("Connection not found, surely closed.")
 				break
 			}
-			if err := conn.SetReadDeadline(time.Now().Add(3*time.Millisecond)); err != nil {
+			if err := conn.SetReadDeadline(time.Time{}); err != nil {
 				fmt.Println("Could not set connection read deadline: " + err.Error())
 			}
 
@@ -79,13 +80,13 @@ func streamCreator(sess quic.Connection, fileName string) int {
 				fmt.Println("StreamID:", streamID)
 				fmt.Println(n)
 				fmt.Println(buf[n-4])
-				/*if buf[n-2] == 0 && buf[n-1]==1 {
+				if buf[n-2] == 0 && buf[n-1]==1 {
 					t.PrintServer(time.Now().UnixNano(), fileName)
-				}else if buf[n-4] == 'H'  {
+				}/*else if buf[n-4] == 'H'  {
 					fmt.Println("HOLA")
 					t.PrintServer(time.Now().UnixNano(), fileName)
 				}else{*/
-					t.PrintBulk(time.Now().UnixNano(), fileName)
+					//t.PrintBulk(time.Now().UnixNano(), fileName)
 				//}
 			}
 
@@ -115,7 +116,7 @@ func main(){
 	// Listen on the given network address for QUIC connection
 	ip := flag.String("ip", "localhost:4242", "IP:Port Address")
 	numStreams:= flag.Int("ns",1, "Number of streams to use")
-	mb := flag.Int("mb", 1, "File size in MiB")
+	//mb := flag.Int("mb", 1, "File size in MiB")
 	fileName := flag.String("file","","Files name")
 //	scheduler := flag.String("scheduler", "rr", "Scheduler type: rr=Round Robin, wfq=Weighted Fair queueing, abs=Absolute Priorization")
 //	order := flag.String("order", "1", "Weight or position to process each stream.")
@@ -167,20 +168,19 @@ func main(){
 	//Accepting and reading streams...
 	numThreads := *numStreams
 	maxBytes:=0
+	var mutex sync.Mutex
 	wg.Add(numThreads)
 	for i:=1;i<=*numStreams;i++ {
 		go func() {
 			defer wg.Done()
-			maxBytes+=streamCreator(sess, *fileName)
+			n:=streamCreator(sess, *fileName)
+			mutex.Lock()
+			maxBytes+=n
+			mutex.Unlock()
 		}()
 	}
 	wg.Wait()
-	if maxBytes==(*mb)*1024*1024{
-		fmt.Println("Maximum of bytes received:", maxBytes)
-		endTX:=time.Now().UnixNano()
-		fmt.Println(endTX)
-		t.PrintServer(endTX,*fileName)
-	}
+
 	fmt.Println("MaxBytes until now:",maxBytes)
 }
 
