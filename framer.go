@@ -104,6 +104,8 @@ func (f *framerI) AddActiveStream(id protocol.StreamID) {
 		fmt.Println("AddActiveStream StreamPrior: ", f.config.StreamPrior)
 
 		switch f.config.TypePrior {
+		case "fifo":
+			fmt.Println("\nEstás usando FIFO\n")
 		case "abs"://The stream queue is ordered by StreamPrior priorities slice.
 
 			lenQ := len(f.streamQueue)
