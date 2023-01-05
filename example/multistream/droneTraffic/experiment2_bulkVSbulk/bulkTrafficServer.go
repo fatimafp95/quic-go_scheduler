@@ -10,7 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/lucas-clemente/quic-go"
-	"github.com/lucas-clemente/quic-go/internal/protocol"
+	"io"
 	"math/big"
 	"net"
 	"os"
@@ -45,8 +45,7 @@ func (t *trace) PrintDrone(tx_time int64) {
 }
 
 func streamCreator(sess quic.Connection, mb int, fileNameBulk string) int {
-
-	bytesReceived:=0
+	totalBytesReceived:=0
 	auxBuf := make([]byte,1)
 	stream, err := sess.AcceptStream(context.Background())
 	if err != nil {
@@ -59,52 +58,46 @@ func streamCreator(sess quic.Connection, mb int, fileNameBulk string) int {
 	var t *trace
 	var timeStamp int64
 	if id != 0{
+		bytesReceived:=0
 
 		//No priority stream
-		buf := make([]byte, protocol.InitialPacketSizeIPv4) // Buffer for each stream
+		buf := make([]byte, 1024) // Buffer for each stream
 		for {
-			if n, err := stream.Read(buf); err != nil {
+			if n, err := io.ReadFull(stream,buf); err != nil {
 				break
 			} else {
-			//	fmt.Println("StreamID:", stream.StreamID())
 				bytesReceived += n
-				/*if bytesReceived == mb*1024*1024{
-					timeStamp = time.Now().UnixNano()
-					fmt.Println("TS of BULK at the server side")
-				}*/
-				//timeStamp = time.Now().UnixNano()
-				//fmt.Println(bytesReceived)
-				//t.PrintDrone(timeStamp)
 			}
 		}
 		fmt.Println("Server - Number of bytes received by the stream ",stream.StreamID(),":", bytesReceived)
-	}else if id==0{
+		totalBytesReceived=bytesReceived
+	} else if id==0{
 		t = NewTrace(fileNameBulk)
-
+		bytesReceived:=0
 		//No priority stream
-		buf := make([]byte, protocol.InitialPacketSizeIPv4) // Buffer for each stream
+		buf := make([]byte, 10485760) // Buffer for each stream
 		for {
-			if n, err := stream.Read(buf); err != nil {
+			if n, err := io.ReadFull(stream,buf); err != nil {
 				break
 			} else {
-				//fmt.Println("StreamID:", stream.StreamID())
-				//fmt.Println(n)
 				bytesReceived += n
-				if bytesReceived == 52428800 {
-					timeStamp = time.Now().UnixNano()
-					t.PrintDrone(timeStamp)
-					fmt.Println("TS of BULK at the server side")
-				}
+			}
+			if bytesReceived >= 10485760 {
+				timeStamp = time.Now().UnixNano()
+				t.PrintDrone(timeStamp)
+				fmt.Println("TS of BULK at the server side")
 			}
 		}
 		fmt.Println("Server - Number of bytes received by the stream ",stream.StreamID(),":", bytesReceived)
+		totalBytesReceived=bytesReceived
+
 		t.file.Close()
 	}
 	//To know how many bytes the server is receiving from the streams
 //
-	return bytesReceived
-}
+	return totalBytesReceived
 
+}
 func main() {
 
 	// Listen on the given network address for QUIC connection

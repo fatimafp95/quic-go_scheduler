@@ -53,10 +53,10 @@ func streamOpener(session quic.Connection) quic.Stream {
 
 func main() {
 	// Listen on the given network address for QUIC connection
-	keyLogFile := flag.String("keylog", "", "key log file")
+	keyLogFile := flag.String("keylog", "keylog.log", "key log file")
 	ip := flag.String("ip", "localhost:4242", "IP:Port Address")
 	numStreams := flag.Int("ns", 1, "Number of streams to use")
-	mb := flag.Int("mb", 1, "File size in MiB")
+	//mb := flag.Int("mb", 1, "File size in MiB")
 	fileNameBulk := flag.String("fileBulk", "", "Files name")
 	scheduler := flag.String("scheduler", "rr", "Scheduler type: rr=Round Robin, wfq=Weight Fair queueing, abs=Absolute Priorization")
 	order := flag.String("order", "1", "Weight or position to process each stream.")
@@ -124,23 +124,41 @@ func main() {
 	}
 	wg.Wait()
 
-	// Create the BULK message to send (GB)
-	maxSendBytes := (*mb) * 1024 * 1024
-	messageBulk := make([]byte, maxSendBytes) // Generate a message of PACKET_SIZE full of random information
+	// Create the BULK message to send (MB)
+	//maxSendBytes := (*mb) * 1024 * 1024
+	//maxBytes:=(*mb)*1024*1024
+	messageBulk := make([]byte, 1024) // Generate a message of PACKET_SIZE full of random information
+
 	nBulk:=numThreads
 	wg.Add(nBulk)
 	for i:=0;i<2;i++ {
 		go func(i int) {
 			t:=NewTraceClient(*fileNameBulk)
+			cumulative := 0
+			rand := 0
 			defer wg.Done()
-			stamp:=time.Now().UnixNano()// print the timestamp
-			n, _ := stream[i].Write(messageBulk)
-			if stream[i].StreamID() == 0 && n == 52428800{
+			if stream[i].StreamID() == 0 {
+				stamp:=time.Now().UnixNano()// print the timestamp
 				t.PrintDroneClient(stamp)
 			}
+			for {
+				//fmt.Println(cumulative)
+				if (cumulative + 1024) >= 10485760 {
+					rand = 10485760 - cumulative
+					//fmt.Println(rand)
+					messageBulk = make([]byte, rand)
+					n, _ := stream[i].Write(messageBulk)
+					cumulative+=n
+					break
+				}
+				n, _ := stream[i].Write(messageBulk)
+				cumulative+=n
+			//	time.Sleep(2*time.Millisecond)
+			}
+			fmt.Println(cumulative)
 			t.file.Close()
-			time.Sleep(1*time.Microsecond)
 		}(i)
 	}
+	time.Sleep(5*time.Second)
 	wg.Wait()
 }
