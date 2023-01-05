@@ -100,8 +100,8 @@ func (f *framerI) AddActiveStream(id protocol.StreamID) {
 		f.streamQueue = append(f.streamQueue, id)
 		f.activeStreams[id] = struct{}{}
 
-		fmt.Println("AddActiveStream Streamqueue UPD: ", f.streamQueue, id)
-		fmt.Println("AddActiveStream StreamPrior: ", f.config.StreamPrior)
+		//fmt.Println("AddActiveStream Streamqueue UPD: ", f.streamQueue, id)
+		//fmt.Println("AddActiveStream StreamPrior: ", f.config.StreamPrior)
 
 		switch f.config.TypePrior {
 		case "abs"://The stream queue is ordered by StreamPrior priorities slice.
@@ -178,7 +178,7 @@ func (f *framerI) AddActiveStream(id protocol.StreamID) {
 			fmt.Println("%v",f.streamQueue)
 
 		case "rr": // stream ID has already been added
-			fmt.Println("\nEstás usando RR\n")
+			//fmt.Println("\nEstás usando RR\n")
 
 		default: // RR, already done ;)
 		}

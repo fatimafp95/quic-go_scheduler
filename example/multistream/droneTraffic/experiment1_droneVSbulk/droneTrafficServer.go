@@ -102,7 +102,6 @@ func streamCreator(sess quic.Connection, mb int, fileNameBulk string, fileNameDr
 			bytesReceived += n
 			t.PrintDrone(timeStamp, buf, dLen, n)
 		}
-
 		fmt.Println("Server - Number of bytes received: ",stream.StreamID(),":", bytesReceived)
 	}
 	//To know how many bytes the server is receiving from the streams
