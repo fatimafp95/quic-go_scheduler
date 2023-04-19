@@ -11,7 +11,6 @@ import (
 	"flag"
 	"fmt"
 	"github.com/lucas-clemente/quic-go"
-	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"math/big"
 	"net"
 	"os"
@@ -43,8 +42,8 @@ func NewTrace (fileName string) *trace{
 	}
 	return &t
 }
-func (t *trace) PrintDrone(tx_time int64, aux []byte, i int, i2 int) {
-	fmt.Fprintf(t.file, "%d\t%d\t%d\t%d\n", tx_time, aux, i, i2)
+func (t *trace) PrintDrone(tx_time int64, i int, i2 int) {
+	fmt.Fprintf(t.file, "%d\t%d\t%d\n", tx_time, i, i2)
 }
 
 func streamCreator(sess quic.Connection, mb int, fileNameBulk string, fileNameDrone string, dataLen [163478]int) int {
@@ -52,6 +51,7 @@ func streamCreator(sess quic.Connection, mb int, fileNameBulk string, fileNameDr
 	bytesReceived:=0
 	auxBuf := make([]byte,1)
 	stream, err := sess.AcceptStream(context.Background())
+	defer stream.Close()
 	if err != nil {
 		fmt.Println("Connection closed with error " + err.Error())
 	} else {
@@ -62,9 +62,9 @@ func streamCreator(sess quic.Connection, mb int, fileNameBulk string, fileNameDr
 	var t *trace
 	if id != 0{
 		t = NewTrace(fileNameBulk)
-
+		buffSize := 10*1024*1024
 		//No priority stream
-		buf := make([]byte, protocol.InitialPacketSizeIPv4) // Buffer for each stream
+		buf := make([]byte, buffSize) // Buffer for each stream
 		for {
 			if n, err := stream.Read(buf); err != nil {
 				break
@@ -72,10 +72,11 @@ func streamCreator(sess quic.Connection, mb int, fileNameBulk string, fileNameDr
 				fmt.Println("StreamID:", stream.StreamID())
 				fmt.Println(n)
 				bytesReceived += n
-				/*if (bytesReceived == mb*1024*1024){
-					t.PrintDrone(time.Now().UnixNano(),0)
+				if (bytesReceived == 10485760){
+					now:= time.Now()
+					t.PrintDrone(now.UnixNano(),0, 0)
 					fmt.Println("TS of BULK at the server side")
-				}*/
+				}
 			}
 		}
 		fmt.Println("Server - Number of bytes received by the stream ",stream.StreamID(),":", bytesReceived)
@@ -87,8 +88,9 @@ func streamCreator(sess quic.Connection, mb int, fileNameBulk string, fileNameDr
 		var n int
 		readLoop:
 		for _,dLen := range dataLen {
-			for n=0; n<dLen; {
-				m, err := stream.Read(buf[n:dLen])
+			lenMessage := dLen
+			for n=0; n<lenMessage; {
+				m, err := stream.Read(buf[n:lenMessage])
 				if  err != nil {
 					break readLoop
 				}
@@ -98,9 +100,9 @@ func streamCreator(sess quic.Connection, mb int, fileNameBulk string, fileNameDr
 
 			fmt.Println("StreamID:", stream.StreamID())
 			fmt.Println(n)
-			//aux := int8(buf[0]) //Timestamp for each drone message:
 			bytesReceived += n
-			t.PrintDrone(timeStamp, buf, dLen, n)
+
+			t.PrintDrone(timeStamp, lenMessage, n)
 		}
 		fmt.Println("Server - Number of bytes received: ",stream.StreamID(),":", bytesReceived)
 	}
@@ -155,7 +157,8 @@ func main() {
 	}
 
 	sess, err := listener.Accept(context.Background())
-//	fmt.Println("Server: Connection accepted")
+	defer sess.CloseWithError(0, "")
+	fmt.Println("Server: Connection accepted")
 	if err != nil {
 		fmt.Println("Server: Error accepting: ", err.Error())
 		return

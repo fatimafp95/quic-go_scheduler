@@ -35,8 +35,8 @@ func NewTraceClient (fileName string) *traceClient{
 	}
 	return &t
 }
-func (t *traceClient) PrintDroneClient(tx_time int64, aux int8, drone []byte) {
-	fmt.Fprintf(t.file, "%d\t%d\t%d\n", tx_time,aux,drone)
+func (t *traceClient) PrintDroneClient(tx_time int64) {
+	fmt.Fprintf(t.file, "%d\t\n", tx_time)
 }
 func streamOpener(session quic.Connection) quic.Stream {
 	stream, err := session.OpenStream()
@@ -61,7 +61,7 @@ func main() {
 	fileNameBulk := flag.String("fileBulk", "", "Files name")
 	fileNameDrone := flag.String("fileDrone", "", "Files name")
 	scheduler := flag.String("scheduler", "rr", "Scheduler type: rr=Round Robin, wfq=Weight Fair queueing, abs=Absolute Priorization")
-	order := flag.String("order", "1", "Weight or position to process each stream.")
+	order := flag.String("order", "1", "Weight or position to process each stream. >2 streams: XYZ priorities")
 	flag.Parse()
 	var wg sync.WaitGroup
 
@@ -103,8 +103,8 @@ func main() {
 	//QUIC config
 	quicConfig := &quic.Config{
 		DisablePathMTUDiscovery: true,
-		TypePrior:               *scheduler,
-		StreamPrior:             slice,
+		TypePrio:               *scheduler,
+		StreamPrio:             slice,
 	}
 
 	// QUIC logger
@@ -127,6 +127,7 @@ func main() {
 
 	//QUIC session
 	session, err := quic.DialAddr(*ip, tlsConf, quicConfig)
+	defer session.CloseWithError(0, "")
 	if err != nil {
 		panic("Failed to create QUIC session")
 	} else {
@@ -136,7 +137,7 @@ func main() {
 	//QUIC open streams
 	numThreads := *numStreams
 	var mutex sync.Mutex
-	var stream [3]quic.Stream
+	var stream [10]quic.Stream
 	wg.Add(numThreads)
 	for i := 0; i < numThreads; i++ {
 		mutex.Lock()
@@ -147,14 +148,31 @@ func main() {
 		}(i)
 	}
 	wg.Wait()
-//	fmt.Println("Stream slice:", stream[0].StreamID(), stream[1].StreamID())
 
+	//Channel to communicate streams//
+	stopChannel:= make(chan struct{})
+	/////////////////////////////////
+	// Create the BULK message to send (GB)
+	maxSendBytes := (*mb) * 1024 * 1024
+	messageBulk := make([]byte, maxSendBytes) // Generate a message of PACKET_SIZE full of random information
+	nBulk:=numThreads-1
+	wg.Add(nBulk)
+	for i:=1;i<nBulk;i++ {
+		go func(i int) {
 
-	/*** Test message ***/
-	/*message2 := make([]byte,maxSendBytes)
-	b := []byte("HOLA")
-	message2 = append(message2,b...)
-*/
+			t := NewTraceClient(*fileNameBulk)
+			defer wg.Done()
+			tStamp := time.Now()
+			t.PrintDroneClient(tStamp.UnixNano()) // print the timestamp
+			stream[i].Write(messageBulk)
+			t.file.Close()
+			select {
+				case <-stopChannel:
+					stream[i].CancelWrite(0)
+			}
+
+		}(i)
+	}
 	/**************DRONE MESSAGES******************/
 	messageDroneProto := make([]byte, 242)
 	var messageDrone []byte
@@ -162,33 +180,19 @@ func main() {
 	go func() {
 		t:=NewTraceClient(*fileNameDrone)
 		defer wg.Done()
-		//fmt.Println("Drone file is reading")
-		//stream[0].Write(message2)
 		for i, dLen := range dataLen {
-			messageDrone=messageDroneProto[:dLen]
+			lenMessage:=dLen
+			messageDrone=messageDroneProto[:lenMessage]
 			messageDrone[0]= byte(i)
 			time.Sleep(temp[i])
-			t.PrintDroneClient(time.Now().UnixNano(), int8(i), messageDrone) // print the timestamp
+			now := time.Now()
+			t.PrintDroneClient(now.UnixNano()) // print the timestamp
 			stream[0].Write(messageDrone)
+			if i==len(dataLen){
+				 close(stopChannel)
+			}
 		}
-		//stream[0].Write([]byte{'X'})
 		t.file.Close()
 	}()
-
-	// Create the BULK message to send (GB)
-	maxSendBytes := (*mb) * 1024 * 1024
-	messageBulk := make([]byte, maxSendBytes) // Generate a message of PACKET_SIZE full of random information
-	nBulk:=numThreads-1
-	wg.Add(nBulk)
-	for i:=1;i<3;i++ {
-		go func(i int) {
-			t:=NewTraceClient(*fileNameBulk)
-			defer wg.Done()
-			t.PrintDroneClient(time.Now().UnixNano(), 0, nil) // print the timestamp
-			stream[i].Write(messageBulk)
-			t.file.Close()
-		}(i)
-	}
 	wg.Wait()
-
 }

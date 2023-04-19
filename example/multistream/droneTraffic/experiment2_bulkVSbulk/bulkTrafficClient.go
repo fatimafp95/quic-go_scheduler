@@ -79,8 +79,8 @@ func main() {
 	//QUIC config
 	quicConfig := &quic.Config{
 		DisablePathMTUDiscovery: true,
-		TypePrior:               *scheduler,
-		StreamPrior:             slice,
+		TypePrio:               *scheduler,
+		StreamPrio:             slice,
 	}
 
 	// QUIC logger
@@ -103,6 +103,7 @@ func main() {
 
 	//QUIC session
 	session, err := quic.DialAddr(*ip, tlsConf, quicConfig)
+	defer session.CloseWithError(0, "")
 	if err != nil {
 		panic("Failed to create QUIC session")
 	} else {
@@ -127,35 +128,36 @@ func main() {
 	// Create the BULK message to send (MB)
 	//maxSendBytes := (*mb) * 1024 * 1024
 	//maxBytes:=(*mb)*1024*1024
-	messageBulk := make([]byte, 1024) // Generate a message of PACKET_SIZE full of random information
+	messageBulk := make([]byte, 10485760) // Generate a message of PACKET_SIZE full of random information
 
 	nBulk:=numThreads
 	wg.Add(nBulk)
 	for i:=0;i<2;i++ {
 		go func(i int) {
 			t:=NewTraceClient(*fileNameBulk)
-			cumulative := 0
-			rand := 0
+			/*cumulative := 0
+			rand := 0*/
 			defer wg.Done()
 			if stream[i].StreamID() == 0 {
 				stamp:=time.Now().UnixNano()// print the timestamp
 				t.PrintDroneClient(stamp)
 			}
-			for {
+			/*for {
 				//fmt.Println(cumulative)
 				if (cumulative + 1024) >= 10485760 {
 					rand = 10485760 - cumulative
 					//fmt.Println(rand)
-					messageBulk = make([]byte, rand)
-					n, _ := stream[i].Write(messageBulk)
-					cumulative+=n
+					messageBulk = make([]byte, rand)*/
+			n, _ := stream[i].Write(messageBulk)
+					/*cumulative+=n
 					break
 				}
 				n, _ := stream[i].Write(messageBulk)
 				cumulative+=n
 			//	time.Sleep(2*time.Millisecond)
-			}
-			fmt.Println(cumulative)
+			}*/
+			fmt.Println("Total bytes sent:",n)
+			time.Sleep(10*time.Second)
 			t.file.Close()
 		}(i)
 	}

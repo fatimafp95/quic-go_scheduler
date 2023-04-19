@@ -306,9 +306,9 @@ type Config struct {
 	Tracer          logging.Tracer
 
 	//SCHEDULER: StreamPrior defines the weight given to each stream.
-	StreamPrior []int
+	StreamPrio []int
 	//SCHEDULER: TypePrior defines the type of the priority scheduler--> abs: absolute priorities, wfq: weighted priorities, rr: round robin
-	TypePrior string
+	TypePrio string
 }
 
 // ConnectionState records basic details about a QUIC connection

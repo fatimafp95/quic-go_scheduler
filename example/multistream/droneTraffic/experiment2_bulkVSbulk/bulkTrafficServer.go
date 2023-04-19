@@ -47,14 +47,20 @@ func (t *trace) PrintDrone(tx_time int64) {
 func streamCreator(sess quic.Connection, mb int, fileNameBulk string) int {
 	totalBytesReceived:=0
 	auxBuf := make([]byte,1)
+	outfile, err := os.OpenFile("outServer.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	defer outfile.Close()
+
 	stream, err := sess.AcceptStream(context.Background())
 	if err != nil {
-		fmt.Println("Connection closed with error " + err.Error())
+		fmt.Fprintln(outfile,"Connection closed with error " + err.Error())
 	} else {
-		fmt.Println("Stream accepted: ", stream.StreamID())
+		fmt.Fprintln(outfile,"Stream accepted: ", stream.StreamID())
 	}
 	stream.Read(auxBuf)
 	id := stream.StreamID()
+	if err!= nil{
+		panic(err)
+	}
 	var t *trace
 	var timeStamp int64
 	if id != 0{
@@ -69,7 +75,7 @@ func streamCreator(sess quic.Connection, mb int, fileNameBulk string) int {
 				bytesReceived += n
 			}
 		}
-		fmt.Println("Server - Number of bytes received by the stream ",stream.StreamID(),":", bytesReceived)
+		fmt.Fprintln(outfile,"Server - Number of bytes received by the stream ",stream.StreamID(),":", bytesReceived)
 		totalBytesReceived=bytesReceived
 	} else if id==0{
 		t = NewTrace(fileNameBulk)
@@ -78,6 +84,7 @@ func streamCreator(sess quic.Connection, mb int, fileNameBulk string) int {
 		buf := make([]byte, 10485760) // Buffer for each stream
 		for {
 			if n, err := io.ReadFull(stream,buf); err != nil {
+				fmt.Fprintln(outfile,"Error stream 0: ",err)
 				break
 			} else {
 				bytesReceived += n
@@ -85,10 +92,11 @@ func streamCreator(sess quic.Connection, mb int, fileNameBulk string) int {
 			if bytesReceived >= 10485760 {
 				timeStamp = time.Now().UnixNano()
 				t.PrintDrone(timeStamp)
-				fmt.Println("TS of BULK at the server side")
+				fmt.Fprintln(outfile,"TS of BULK at the server side\n")
+				break
 			}
 		}
-		fmt.Println("Server - Number of bytes received by the stream ",stream.StreamID(),":", bytesReceived)
+		fmt.Fprintln(outfile,"Server - Number of bytes received by the stream ",stream.StreamID(),":", bytesReceived)
 		totalBytesReceived=bytesReceived
 
 		t.file.Close()
