@@ -1,9 +1,12 @@
+This stream scheduler is based on the following implementation:
+
 # A QUIC implementation in pure Go
 
 <img src="docs/quic.png" width=303 height=124>
 
 [![PkgGoDev](https://pkg.go.dev/badge/github.com/lucas-clemente/quic-go)](https://pkg.go.dev/github.com/lucas-clemente/quic-go)
 [![Code Coverage](https://img.shields.io/codecov/c/github/lucas-clemente/quic-go/master.svg?style=flat-square)](https://codecov.io/gh/lucas-clemente/quic-go/)
+
 
 quic-go is an implementation of the [QUIC protocol, RFC 9000](https://datatracker.ietf.org/doc/html/rfc9000) protocol in Go, including the [Unreliable Datagram Extension, RFC 9221](https://datatracker.ietf.org/doc/html/rfc9221).
 
